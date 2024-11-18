@@ -568,7 +568,7 @@ const EmptyMonitor = () => {
         const currentX = block.forkliftPosition?.x || minX
         
         // 決定移動方向
-        let deltaX = (Math.random() * 50 - 25) // 增加移動幅度
+        const deltaX = (Math.random() * 50 - 25) // 將 let 改為 const
         // 確保推高機保持在合理範圍內
         const newX = Math.max(minX, Math.min(maxX, currentX + deltaX))
 
