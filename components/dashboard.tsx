@@ -14,16 +14,30 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { useTheme } from "next-themes"
+import { Moon, Sun } from "lucide-react"
 
 // Reusable components
 const Stat = ({ title, value, change }: { title: string; value: string; change: string }) => (
-  <Card>
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-      <CardTitle className="text-sm font-medium">{title}</CardTitle>
+  <Card className="dark:bg-gray-800/50 dark:border-gray-700 transition-all hover:shadow-md">
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 p-4">
+      <CardTitle className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+        {title}
+      </CardTitle>
     </CardHeader>
-    <CardContent>
-      <div className="text-2xl font-bold">{value}</div>
-      <p className="text-xs text-muted-foreground">{change}</p>
+    <CardContent className="p-4 pt-0">
+      <div className="flex flex-col">
+        <div className="text-2xl font-bold text-gray-900 dark:text-gray-50 tracking-tight">
+          {value}
+        </div>
+        <p className={`text-xs font-medium mt-1 ${
+          change.includes('+') 
+            ? 'text-emerald-600 dark:text-emerald-400' 
+            : 'text-red-600 dark:text-red-400'
+        }`}>
+          {change}
+        </p>
+      </div>
     </CardContent>
   </Card>
 )
@@ -59,6 +73,8 @@ const ContainerMonitor = () => {
   const [selectedLane, setSelectedLane] = useState<LaneClick | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [showLegend, setShowLegend] = useState(false)
+  const [selectedSection, setSelectedSection] = useState<Section | null>(null)
+  const [mounted, setMounted] = useState(false)
 
   const waitingTimeLegend: Legend[] = [
     { color: '#ef4444', label: 'WT > 30min' },
@@ -79,6 +95,8 @@ const ContainerMonitor = () => {
   ]
 
   useEffect(() => {
+    setMounted(true)
+    
     // Initialize sections with IDs A through J
     const initialSections = Array.from('ABCDEFGHIJ').map(id => ({
       id,
@@ -121,6 +139,11 @@ const ContainerMonitor = () => {
     return () => clearInterval(interval)
   }, [])
 
+  // 如果還沒有掛載，返回一個加載佔位符
+  if (!mounted) {
+    return <div className="w-full h-[520px] bg-black border border-gray-700" />
+  }
+
   const getStatusColor = (value: number) => {
     if (value > 75) return '#ef4444'
     if (value > 70) return '#f97316'
@@ -136,6 +159,10 @@ const ContainerMonitor = () => {
 
   const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen)
+  }
+
+  const handleSectionClick = (section: Section) => {
+    setSelectedSection(section)
   }
 
   return (
@@ -248,8 +275,8 @@ const ContainerMonitor = () => {
           />
         </g>
 
-        {/* Monitor points */}
-        {shipMonitorPoints.map((point, index) => (
+        {/* Only render monitor points when mounted */}
+        {mounted && shipMonitorPoints.map((point, index) => (
           <g key={point.id}>
             <circle
               cx={192}
@@ -269,8 +296,8 @@ const ContainerMonitor = () => {
           </g>
         ))}
 
-        {/* Main grid sections */}
-        {sections.map((section, index) => {
+        {/* Only render sections when mounted */}
+        {mounted && sections.map((section, index) => {
           const sectionWidth = 210
           const x = index * sectionWidth + 250
           const isRFSection = ['D', 'E', 'F', 'G', 'H'].includes(section.id)
@@ -409,6 +436,17 @@ const ContainerMonitor = () => {
                   </text>
                 </g>
               )}
+
+              {/* 添加可點擊區域 */}
+              <rect
+                x={x}
+                y={-100}
+                width={sectionWidth}
+                height={520}
+                fill="transparent"
+                className="cursor-pointer"
+                onClick={() => handleSectionClick(section)}
+              />
             </g>
           )
         })}
@@ -433,6 +471,52 @@ const ContainerMonitor = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Section Details Dialog */}
+      <Dialog open={selectedSection !== null} onOpenChange={() => setSelectedSection(null)}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>
+              Section {selectedSection?.id} Details
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <div className="grid grid-cols-2 gap-4">
+              {(() => {
+                const isRFSection = selectedSection?.id ? ['D', 'E', 'F', 'G', 'H'].includes(selectedSection.id) : false;
+                return (
+                  <>
+                    <div>
+                      <Label>Utilization</Label>
+                      <div className="text-2xl font-bold">
+                        {Math.round(selectedSection?.utilization || 0)}%
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Waiting Time</Label>
+                      <div className="text-2xl font-bold">
+                        {Math.round(selectedSection?.waitingTime || 0)} min
+                      </div>
+                    </div>
+                    <div>
+                      <Label>{isRFSection ? 'RF Status' : 'SD Status'}</Label>
+                      <div className="text-2xl font-bold">
+                        {Math.round(selectedSection?.rfPlugStatus || 0)}%
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Crane Position</Label>
+                      <div className="text-2xl font-bold">
+                        {Math.round(selectedSection?.cranePosition || 0)}
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -447,6 +531,7 @@ interface EmptyBlock {
 const EmptyMonitor = () => {
   const [emptyBlocks, setEmptyBlocks] = useState<EmptyBlock[]>([])
   const [showLegend, setShowLegend] = useState(true)
+  const [mounted, setMounted] = useState(false)
 
   const emptyBlockLegend: Legend[] = [
     { color: '#ef4444', label: 'Containers to clean > 40' },
@@ -461,27 +546,29 @@ const EmptyMonitor = () => {
   ]
 
   useEffect(() => {
-    // 初始化空櫃數據 - 修改推高機初始位置為對角線分布
+    setMounted(true)
+    
+    // 初始化空櫃數據
     const initialEmptyBlocks = [
-      { id: 'Row1', containersToClean: 41, repairingContainers: 20, forkliftPosition: { x: 200, y: -120 } },
-      { id: 'Row2', containersToClean: 25, repairingContainers: 15, forkliftPosition: { x: 400, y: -60 } },
-      { id: 'Row3', containersToClean: 35, repairingContainers: 12, forkliftPosition: { x: 600, y: 0 } },
-      { id: 'Row4', containersToClean: 28, repairingContainers: 18, forkliftPosition: { x: 800, y: 60 } },
-      { id: 'Row5', containersToClean: 15, repairingContainers: 8, forkliftPosition: { x: 1000, y: 120 } },
-      { id: 'Row6', containersToClean: 22, repairingContainers: 10, forkliftPosition: { x: 1200, y: 180 } },
+      { id: 'Row1', containersToClean: 41, repairingContainers: 20, forkliftPosition: { x: 850, y: -120 } },
+      { id: 'Row2', containersToClean: 25, repairingContainers: 15, forkliftPosition: { x: 850, y: 30 } },
+      { id: 'Row3', containersToClean: 35, repairingContainers: 12, forkliftPosition: { x: 850, y: 180 } },
+      { id: 'Row4', containersToClean: 28, repairingContainers: 18, forkliftPosition: { x: 850, y: 330 } },
+      { id: 'Row5', containersToClean: 15, repairingContainers: 8, forkliftPosition: { x: 850, y: 480 } },
+      { id: 'Row6', containersToClean: 22, repairingContainers: 10, forkliftPosition: { x: 850, y: 630 } },
     ]
     setEmptyBlocks(initialEmptyBlocks)
 
     const interval = setInterval(() => {
       setEmptyBlocks(prev => prev.map((block, index) => {
-        // 推高機在對角線方向移動
-        const baseY = -120 + (index * 60) // 每行的基準 y 座標
-        const minX = 200 + (index * 200)  // 每行的最小 x 座標
-        const maxX = minX + 200           // 每行的最大 x 座標
+        // 修改推高機移動範圍
+        const baseY = -120 + (index * 150) // 調整為與 container 高度相同的間距
+        const minX = 100  // 左邊界
+        const maxX = 1600 // 右邊界
         const currentX = block.forkliftPosition?.x || minX
         
         // 決定移動方向
-        let deltaX = (Math.random() * 30 - 15)
+        let deltaX = (Math.random() * 50 - 25) // 增加移動幅度
         // 確保推高機保持在合理範圍內
         const newX = Math.max(minX, Math.min(maxX, currentX + deltaX))
 
@@ -499,6 +586,11 @@ const EmptyMonitor = () => {
 
     return () => clearInterval(interval)
   }, [])
+
+  // 如果還沒有掛載，返回一個加載佔位符
+  if (!mounted) {
+    return <div className="w-full h-[520px] bg-black border border-gray-700" />
+  }
 
   const getEmptyBlockColor = (value: number) => {
     if (value > 40) return '#ef4444'
@@ -558,7 +650,7 @@ const EmptyMonitor = () => {
         </defs>
         <rect width="100%" height="100%" fill="url(#emptyGrid)" />
 
-        {/* 繪製六行橫向櫃位 */}
+        {/* 繪製橫向櫃位 */}
         {emptyBlocks.slice(0, 6).map((block, index) => (
           <g key={block.id}>
             {/* 空櫃區域背景 */}
@@ -566,11 +658,21 @@ const EmptyMonitor = () => {
               x={100}
               y={index * 150 - 150}
               width={1500}
-              height={60}
+              height={120} // 增加高度
               fill="#1a1a1a"
               stroke="#374151"
               strokeWidth="2"
             />
+
+            {/* 添加區域標籤 */}
+            <text
+              x={120}
+              y={index * 150 - 100}
+              fill="white"
+              className="text-sm font-bold"
+            >
+              {`${block.id} - Clean: ${Math.round(block.containersToClean)} | Repair: ${Math.round(block.repairingContainers)}`}
+            </text>
 
             {/* 推高機位置 */}
             <g transform={`translate(${block.forkliftPosition?.x || 0},${block.forkliftPosition?.y || 0})`}>
@@ -594,61 +696,13 @@ const EmptyMonitor = () => {
             </g>
           </g>
         ))}
-
-        {/* 繪製直向櫃位 */}
-        {emptyBlocks.slice(6).map((block) => (
-          <g key={block.id}>
-            <rect
-              x={1700}
-              y={20}
-              width={60}
-              height={600}
-              fill="#1a1a1a"
-              stroke="#374151"
-              strokeWidth="2"
-            />
-            
-            <text
-              x={1730}
-              y={15}
-              textAnchor="middle"
-              fill="white"
-              className="text-xl font-bold"
-            >
-              {block.id}
-            </text>
-
-            
-            
-
-            {/* 推高機位置 */}
-            <g transform={`translate(${block.forkliftPosition?.x || 0},${block.forkliftPosition?.y || 0})`}>
-              <rect
-                x={-12}
-                y={-12}
-                width={24}
-                height={24}
-                fill="#fbbf24"
-                className="animate-pulse"
-              />
-              <text
-                x={0}
-                y={25}
-                textAnchor="middle"
-                fill="#fbbf24"
-                className="text-sm font-bold"
-              >
-                FL-{block.id}
-              </text>
-            </g>
-          </g>
-        ))}
       </svg>
     </div>
   )
 }
 
 export function DashboardComponent() {
+  const { theme, setTheme } = useTheme()
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [currentTime, setCurrentTime] = useState<string>('')
 
@@ -664,36 +718,44 @@ export function DashboardComponent() {
   }, [])
 
   return (
-    <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
-      {/* Sidebar with collapse button */}
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-950">
+      {/* Sidebar */}
       <aside 
-        className={`bg-white dark:bg-gray-800 min-h-screen transition-all duration-300 relative
+        className={`bg-white dark:bg-gray-900 min-h-screen transition-all duration-300 relative
+          border-r border-gray-200 dark:border-gray-800
           ${isSidebarOpen ? 'w-64' : 'w-16'}`}
       >
-        {/* Collapse button - 移到中間 */}
         <Button
           variant="ghost"
           size="icon"
-          className="absolute -right-3 top-1/2 -translate-y-1/2 z-50 rounded-full bg-white dark:bg-gray-800 shadow-md"
+          className="absolute -right-3 top-1/2 -translate-y-1/2 z-50 rounded-full
+            bg-white dark:bg-gray-900 shadow-md dark:shadow-gray-950
+            hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
         >
           {isSidebarOpen ? (
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="h-4 w-4 text-gray-600 dark:text-gray-400" />
           ) : (
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="h-4 w-4 text-gray-600 dark:text-gray-400" />
           )}
         </Button>
 
         <nav className="space-y-2 p-4">
-          <Button variant="ghost" className={`w-full justify-start ${!isSidebarOpen && 'px-2'}`}>
+          <Button variant="ghost" 
+            className={`w-full justify-start text-gray-600 dark:text-gray-400
+              hover:bg-gray-100 dark:hover:bg-gray-800 ${!isSidebarOpen && 'px-2'}`}>
             <Menu className="h-5 w-5" />
             {isSidebarOpen && <span className="ml-2">Dashboard</span>}
           </Button>
-          <Button variant="ghost" className={`w-full justify-start ${!isSidebarOpen && 'px-2'}`}>
+          <Button variant="ghost" 
+            className={`w-full justify-start text-gray-600 dark:text-gray-400
+              hover:bg-gray-100 dark:hover:bg-gray-800 ${!isSidebarOpen && 'px-2'}`}>
             <Bell className="h-5 w-5" />
             {isSidebarOpen && <span className="ml-2">Notifications</span>}
           </Button>
-          <Button variant="ghost" className={`w-full justify-start ${!isSidebarOpen && 'px-2'}`}>
+          <Button variant="ghost" 
+            className={`w-full justify-start text-gray-600 dark:text-gray-400
+              hover:bg-gray-100 dark:hover:bg-gray-800 ${!isSidebarOpen && 'px-2'}`}>
             <Settings className="h-5 w-5" />
             {isSidebarOpen && <span className="ml-2">Settings</span>}
           </Button>
@@ -701,50 +763,115 @@ export function DashboardComponent() {
       </aside>
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Title bar */}
-        <header className="bg-white dark:bg-gray-800 shadow-md">
-          <div className="flex items-center justify-between px-4 py-2">
-            <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
-              <Menu />
-            </Button>
-            <h1 className="text-xl font-bold">Container Terminal Dashboard</h1>
-            <div className="flex items-center space-x-2">
-              {/* 只在客戶端有時間時才顯示 */}
-              {currentTime && <span>{currentTime}</span>}
-              <Button variant="ghost" size="icon">
-                <LogOut />
+        {/* Header */}
+        <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
+          <div className="flex items-center justify-between px-4 py-3">
+            <div className="flex items-center space-x-3">
+              {/* 添加 logo */}
+              <svg 
+                className="h-8 w-8 text-blue-500" 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="currentColor" 
+                strokeWidth="2"
+              >
+                <path d="M20 3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z" />
+                <path d="M16 3v18" />
+                <path d="M8 3v18" />
+                <path d="M4 8h16" />
+                <path d="M4 16h16" />
+              </svg>
+              <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                Container Terminal <span className="text-blue-500">Dashboard</span>
+              </h1>
+            </div>
+            <div className="flex items-center space-x-3">
+              <span className="text-sm text-gray-600 dark:text-gray-400">{currentTime}</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              >
+                {theme === "dark" ? (
+                  <Sun className="h-5 w-5 text-yellow-500" />
+                ) : (
+                  <Moon className="h-5 w-5" />
+                )}
               </Button>
             </div>
           </div>
         </header>
 
         {/* Main content */}
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 dark:bg-gray-900">
-          <div className="container mx-auto px-4 py-6">
-            {/* Stats grid */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 dark:bg-gray-950">
+          <div className="container mx-auto px-6 py-8">
+            {/* Stats grid - 加回 KPI 統計卡片 */}
+            <div className="grid grid-cols-8 gap-4 mb-8">
               <Stat 
                 title="Total Containers" 
                 value="1,234" 
                 change="+20.1% from last month"
               />
-              <Stat title="Active Ships" value="12" change="-2 from yesterday" />
-              <Stat title="Waiting Time" value="45 min" change="+5 min from average" />
-              <Stat title="Efficiency Rate" value="92%" change="+3% from last week" />
+              <Stat 
+                title="Active Ships" 
+                value="12" 
+                change="-2 from yesterday" 
+              />
+              <Stat 
+                title="Waiting Time" 
+                value="45 min" 
+                change="+5 min" 
+              />
+              <Stat 
+                title="Efficiency" 
+                value="92%" 
+                change="+3%" 
+              />
+              <Stat 
+                title="Yard Usage" 
+                value="78%" 
+                change="+5%"
+              />
+              <Stat 
+                title="Berth Usage" 
+                value="85%" 
+                change="+2%"
+              />
+              <Stat 
+                title="Equipment" 
+                value="89%" 
+                change="+4%"
+              />
+              <Stat 
+                title="Productivity" 
+                value="32.5" 
+                change="+2.1"
+              />
             </div>
 
-            {/* Monitor section with increased size */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+            {/* Tabs */}
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800">
               <Tabs defaultValue="monitor" className="w-full">
-                <TabsList className="mb-4">
-                  <TabsTrigger value="monitor" className="text-base px-6 py-3">Container Monitor</TabsTrigger>
-                  <TabsTrigger value="empty" className="text-base px-6 py-3">Empty Monitor</TabsTrigger>
-                  <TabsTrigger value="search" className="text-base px-6 py-3">Container Search</TabsTrigger>
+                <TabsList className="mb-4 p-1 bg-gray-100/80 dark:bg-gray-800/80 rounded-lg">
+                  <TabsTrigger 
+                    value="monitor" 
+                    className="text-sm font-medium px-4 py-2 data-[state=active]:bg-white
+                      dark:data-[state=active]:bg-gray-900 dark:data-[state=active]:text-gray-100
+                      transition-all"
+                  >
+                    Container Monitor
+                  </TabsTrigger>
+                  <TabsTrigger value="empty" className="text-sm font-medium px-4 py-2">Empty Monitor</TabsTrigger>
+                  <TabsTrigger value="search" className="text-sm font-medium px-4 py-2">Container Search</TabsTrigger>
                 </TabsList>
+
                 <TabsContent value="monitor">
-                  <Card className="border-0 shadow-none">
-                    <CardHeader>
-                      <CardTitle className="text-xl">Real-time Container Monitor</CardTitle>
+                  <Card className="border-0 shadow-none bg-transparent">
+                    <CardHeader className="pb-0">
+                      <CardTitle className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                        Real-time Container Monitor
+                      </CardTitle>
                     </CardHeader>
                     <CardContent className="p-0">
                       <div className="scale-100 transform-origin-top-left p-4">
