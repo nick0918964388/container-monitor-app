@@ -1,13 +1,13 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Menu, Bell, Settings, LogOut, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Eye, EyeOff } from 'lucide-react'
+import { Menu, Bell, Settings, LogOut, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Eye, EyeOff, Pause, Play } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/dialog"
 import { useTheme } from "next-themes"
 import { Moon, Sun } from "lucide-react"
+import Hls from 'hls.js'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 // Reusable components
 const Stat = ({ title, value, change }: { title: string; value: string; change: string }) => (
@@ -66,6 +68,86 @@ interface LaneClick {
   position: number;
 }
 
+// 添加新的 interface 用於 CCTV 數據
+interface CCTVData {
+  status: 'online' | 'offline'
+  lastUpdate: string
+  vehicleCount: number
+}
+
+// 添加新的 interface 用於歷史數據
+interface HistoricalData {
+  timestamp: string;
+  value: number;
+}
+
+// 在 ContainerMonitor 組件頂部添加視頻映射
+const LANE_VIDEOS: { [key: string]: string } = {
+  'A-B': '/videos/lane.mp4',
+  'B-C': '/videos/lane.mp4',
+  'C-D': '/videos/lane.mp4',
+  'D-E': '/videos/lane.mp4',
+  'E-F': '/videos/lane.mp4',
+  'F-G': '/videos/lane.mp4',
+  'G-H': '/videos/lane.mp4',
+  'H-I': '/videos/lane.mp4',
+  'I-J': '/videos/lane.mp4',
+  'default': '/videos/lane.mp4'
+}
+
+const VideoPlayer = ({ laneId }: { laneId: string }) => {
+  const [isPlaying, setIsPlaying] = useState(true)
+  const [videoSource, setVideoSource] = useState('')
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  useEffect(() => {
+    const sources: { [key: string]: string } = {
+      'A-B': '/videos/lane.mp4',
+      'B-C': '/videos/lane.mp4',
+      'C-D': '/videos/lane.mp4',
+      'default': '/videos/lane.mp4'
+    }
+    setVideoSource(sources[laneId] || sources.default)
+  }, [laneId])
+
+  const togglePlay = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause()
+      } else {
+        videoRef.current.play()
+      }
+      setIsPlaying(!isPlaying)
+    }
+  }
+
+  return (
+    <div className="relative">
+      <video
+        ref={videoRef}
+        autoPlay
+        loop
+        muted
+        className="w-full h-full object-cover"
+        src={videoSource}
+      />
+      <div className="absolute bottom-4 right-4 flex gap-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="bg-black/50 hover:bg-black/70 text-white"
+          onClick={togglePlay}
+        >
+          {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// 在 ContainerMonitor 組件頂部添加歷史數據緩存
+const sectionHistoryCache: { [key: string]: HistoricalData[] } = {}
+
 const ContainerMonitor = () => {
   const [sections, setSections] = useState<Section[]>([])
   const [shipMonitorPoints, setShipMonitorPoints] = useState<ShipMonitorPoint[]>([])
@@ -75,6 +157,11 @@ const ContainerMonitor = () => {
   const [showLegend, setShowLegend] = useState(false)
   const [selectedSection, setSelectedSection] = useState<Section | null>(null)
   const [mounted, setMounted] = useState(false)
+  const [cctvData, setCctvData] = useState<CCTVData>({
+    status: 'online',
+    lastUpdate: new Date().toLocaleTimeString(),
+    vehicleCount: 0
+  })
 
   const waitingTimeLegend: Legend[] = [
     { color: '#ef4444', label: 'WT > 30min' },
@@ -94,52 +181,69 @@ const ContainerMonitor = () => {
     { color: '#22c55e', label: 'SD < 65%' }
   ]
 
+  // 生成或獲取歷史數據的函數
+  const getHistoricalData = (sectionId: string) => {
+    if (!sectionHistoryCache[sectionId]) {
+      const hours = 24;
+      // 使用 section ID 作為隨機種子來生成固定的數據
+      const baseValue = sectionId.charCodeAt(0) % 20 + 60; // 60-80 之間的基準值
+      
+      sectionHistoryCache[sectionId] = Array.from({ length: hours }, (_, i) => ({
+        timestamp: new Date(Date.now() - (hours - i) * 3600000).toLocaleTimeString(),
+        value: baseValue + Math.sin(i / 3) * 10 // 使用正弦函數生成波動
+      }));
+    }
+    return sectionHistoryCache[sectionId];
+  }
+
   useEffect(() => {
-    setMounted(true)
-    
-    // Initialize sections with IDs A through J
-    const initialSections = Array.from('ABCDEFGHIJ').map(id => ({
-      id,
-      utilization: Math.floor(Math.random() * 100),
-      waitingTime: Math.floor(Math.random() * 40),
-      rfPlugStatus: Math.floor(Math.random() * 100),
-      cranePosition: Math.floor(Math.random() * 400) + 50
-    }))
-    setSections(initialSections)
+    // 將所有初始化邏輯移到這裡，並確保只在客戶端執行
+    if (typeof window !== 'undefined') {
+      const initialShipPoints = Array.from({ length: 3 }, (_, i) => ({
+        id: i + 1,
+        status: Math.floor(Math.random() * 100),
+        position: {
+          x: 80,
+          y: 150 + (i * 100)
+        }
+      }))
 
-    // Initialize ship monitor points
-    const initialShipPoints = Array.from({ length: 3 }, (_, i) => ({
-      id: i + 1,
-      status: Math.floor(Math.random() * 100),
-      position: {
-        x: 80,
-        y: 150 + (i * 100)
-      }
-    }))
-    setShipMonitorPoints(initialShipPoints)
+      setMounted(true)
+      setShipMonitorPoints(initialShipPoints)
 
-    // Update data periodically
-    const interval = setInterval(() => {
-      setSections(prev => prev.map(section => ({
-        ...section,
-        utilization: Math.max(0, Math.min(100, section.utilization + (Math.random() * 6 - 3))),
-        waitingTime: Math.max(0, Math.min(40, section.waitingTime + (Math.random() * 4 - 2))),
-        rfPlugStatus: Math.max(0, Math.min(100, section.rfPlugStatus + (Math.random() * 6 - 3))),
-        cranePosition: Math.max(50, Math.min(450, section.cranePosition + (Math.random() * 40 - 20)))
-      })))
+      // Initialize sections with IDs A through J
+      const initialSections = Array.from('ABCDEFGHIJ').map(id => ({
+        id,
+        utilization: Math.floor(Math.random() * 100),
+        waitingTime: Math.floor(Math.random() * 40),
+        rfPlugStatus: Math.floor(Math.random() * 100),
+        cranePosition: Math.floor(Math.random() * 400) + 50
+      }))
+      setSections(initialSections)
 
-      setShipMonitorPoints(prev => prev.map(point => ({
-        ...point,
-        status: Math.max(0, Math.min(100, point.status + (Math.random() * 6 - 3)))
-      })))
+      // Update data periodically
+      const interval = setInterval(() => {
+        setSections(prev => prev.map(section => ({
+          ...section,
+          utilization: Math.max(0, Math.min(100, section.utilization + (Math.random() * 6 - 3))),
+          waitingTime: Math.max(0, Math.min(40, section.waitingTime + (Math.random() * 4 - 2))),
+          rfPlugStatus: Math.max(0, Math.min(100, section.rfPlugStatus + (Math.random() * 6 - 3))),
+          cranePosition: Math.max(50, Math.min(450, section.cranePosition + (Math.random() * 40 - 20)))
+        })))
 
-      setCurrentTime(new Date())
-    }, 5000)
+        setShipMonitorPoints(prev => prev.map(point => ({
+          ...point,
+          status: Math.max(0, Math.min(100, point.status + (Math.random() * 6 - 3)))
+        })))
 
-    return () => clearInterval(interval)
+        setCurrentTime(new Date())
+      }, 5000)
+
+      return () => clearInterval(interval)
+    }
   }, [])
 
-  // 如果還沒有掛載，返回一個加載佔位符
+  // 修改渲染邏輯，確保只在 mounted 後渲染動態內容
   if (!mounted) {
     return <div className="w-full h-[520px] bg-black border border-gray-700" />
   }
@@ -154,6 +258,12 @@ const ContainerMonitor = () => {
     setSelectedLane({
       laneId,
       position: yPosition
+    })
+    // 模擬更新 CCTV 數據
+    setCctvData({
+      status: Math.random() > 0.1 ? 'online' : 'offline',
+      lastUpdate: new Date().toLocaleTimeString(),
+      vehicleCount: Math.floor(Math.random() * 5)
     })
   }
 
@@ -275,198 +385,274 @@ const ContainerMonitor = () => {
           />
         </g>
 
-        {/* Only render monitor points when mounted */}
-        {mounted && shipMonitorPoints.map((point, index) => (
-          <g key={point.id}>
-            <circle
-              cx={192}
-              cy={90 + index * 70}
-              r={isFullscreen ? 6 : 4}
-              fill={getStatusColor(point.status)}
-            />
-            <text
-              x={192}
-              y={80 + index * 70}
-              textAnchor="middle"
-              fill={getStatusColor(point.status)}
-              className={`font-bold ${isFullscreen ? 'text-sm' : 'text-xl'}`}
-            >
-              {`${Math.round(point.status)}%`}
-            </text>
-          </g>
-        ))}
-
-        {/* Only render sections when mounted */}
-        {mounted && sections.map((section, index) => {
-          const sectionWidth = 210
-          const x = index * sectionWidth + 250
-          const isRFSection = ['D', 'E', 'F', 'G', 'H'].includes(section.id)
-          
-          return (
-            <g key={section.id}>
-              {/* Vertical dividing lines - 加粗邊界 */}
-              <line
-                x1={x}
-                y1={-100}
-                x2={x}
-                y2={520}
-                stroke="#374151"
-                strokeWidth="4"
-              />
-              
-              {/* 為最後一個區添加右邊界 */}
-              {index === sections.length - 1 && (
-                <line
-                  x1={x + sectionWidth}
-                  y1={-100}
-                  x2={x + sectionWidth}
-                  y2={520}
-                  stroke="#374151"
-                  strokeWidth="2"
+        {/* 只在掛載後渲染動態內容 */}
+        {mounted && (
+          <>
+            {shipMonitorPoints.map((point, index) => (
+              <g key={point.id}>
+                <circle
+                  cx={192}
+                  cy={90 + index * 70}
+                  r={isFullscreen ? 6 : 4}
+                  fill={getStatusColor(point.status)}
                 />
-              )}
+                <text
+                  x={192}
+                  y={80 + index * 70}
+                  textAnchor="middle"
+                  fill={getStatusColor(point.status)}
+                  className={`font-bold ${isFullscreen ? 'text-sm' : 'text-xl'}`}
+                >
+                  {`${Math.round(point.status)}%`}
+                </text>
+              </g>
+            ))}
 
-              {/* Section background for better text visibility */}
-              <rect
-                x={x}
-                y={-100}
-                width={sectionWidth}
-                height={30}
-                fill="black"
-              />
-
-              {/* Utilization percentage */}
-              <text
-                x={x + sectionWidth/2}
-                y={-80}
-                textAnchor="middle"
-                fill={getStatusColor(section.utilization)}
-                className="text-2xl font-bold"
-              >
-                {`${Math.round(section.utilization)}%`}
-              </text>
-
-              {/* Status indicators */}
-              {/* <rect
-                x={x + 5}
-                y={40}
-                width={sectionWidth - 10}
-                height={20}
-                rx={4}
-                fill={getStatusColor(section.waitingTime)}
-                fillOpacity={0.2}
-              /> */}
-
-              {/* Crane */}
-              <line
-                x1={x}
-                y1={section.cranePosition}
-                x2={x + sectionWidth}
-                y2={section.cranePosition}
-                stroke="#fbbf24"
-                strokeWidth={5}
-              />
-
-              {/* Section ID */}
-              <text
-                x={x + sectionWidth/2}
-                y={600}
-                textAnchor="middle"
-                className="text-4xl font-bold fill-gray-100"
-              >
-                {section.id}
-              </text>
-
-              {/* RF/SD Plug status - 根據區域顯示不同文字 */}
-              <rect
-                x={x}
-                y={440}
-                width={sectionWidth}
-                height={30}
-                fill="black"
-              />
-              <text
-                x={x + sectionWidth/2}
-                y={550}
-                textAnchor="middle"
-                fill={getStatusColor(section.rfPlugStatus)}
-                className="text-2xl font-bold"
-              >
-                {`${isRFSection ? 'RF' : 'SD'}: ${Math.round(section.rfPlugStatus)}%`}
-              </text>
-
-              {/* 添加車道標記和點擊區域 */}
-              {index < sections.length - 1 && (
-                <g>
-                  {/* 車道背景 */}
-                  <rect
-                    x={x + sectionWidth - 10}
-                    y={-80}
-                    width={20}
-                    height={500}
-                    fill="#1a1a1a"
-                    className="cursor-pointer"
-                    onClick={(e) => {
-                      const svgElement = e.currentTarget.ownerSVGElement
-                      if (svgElement) {
-                        const rect = svgElement.getBoundingClientRect()
-                        const y = e.clientY - rect.top
-                        handleLaneClick(`Lane ${section.id}-${sections[index + 1].id}`, y)
-                      }
-                    }}
-                  />
-                  {/* 車道標記線 */}
+            {sections.map((section, index) => {
+              const sectionWidth = 210
+              const x = index * sectionWidth + 250
+              const isRFSection = ['D', 'E', 'F', 'G', 'H'].includes(section.id)
+              
+              return (
+                <g key={section.id}>
+                  {/* Vertical dividing lines - 加粗邊界 */}
                   <line
-                    x1={x + sectionWidth}
-                    y1={0}
-                    x2={x + sectionWidth}
-                    y2={500}
-                    stroke="#fbbf24"
-                    strokeWidth="1"
-                    strokeDasharray="6 6"
+                    x1={x}
+                    y1={-100}
+                    x2={x}
+                    y2={520}
+                    stroke="#374151"
+                    strokeWidth="4"
                   />
-                  {/* 車道標籤 */}
-                  <text
-                    x={x + sectionWidth}
-                    y={200}
-                    textAnchor="middle"
-                    className={`font-bold fill-gray-400 ${isFullscreen ? 'text-sm' : 'text-xs'}`}
-                  >
-                    {`L${index + 1}`}
-                  </text>
-                </g>
-              )}
+                  
+                  {/* 為最後一個區添加右邊界 */}
+                  {index === sections.length - 1 && (
+                    <line
+                      x1={x + sectionWidth}
+                      y1={-100}
+                      x2={x + sectionWidth}
+                      y2={520}
+                      stroke="#374151"
+                      strokeWidth="2"
+                    />
+                  )}
 
-              {/* 添加可點擊區域 */}
-              <rect
-                x={x}
-                y={-100}
-                width={sectionWidth}
-                height={520}
-                fill="transparent"
-                className="cursor-pointer"
-                onClick={() => handleSectionClick(section)}
-              />
-            </g>
-          )
-        })}
+                  {/* Section background for better text visibility */}
+                  <rect
+                    x={x}
+                    y={-100}
+                    width={sectionWidth}
+                    height={30}
+                    fill="black"
+                  />
+
+                  {/* Utilization percentage */}
+                  <text
+                    x={x + sectionWidth/2}
+                    y={-80}
+                    textAnchor="middle"
+                    fill={getStatusColor(section.utilization)}
+                    className="text-2xl font-bold"
+                  >
+                    {`${Math.round(section.utilization)}%`}
+                  </text>
+
+                  {/* Status indicators */}
+                  {/* <rect
+                    x={x + 5}
+                    y={40}
+                    width={sectionWidth - 10}
+                    height={20}
+                    rx={4}
+                    fill={getStatusColor(section.waitingTime)}
+                    fillOpacity={0.2}
+                  /> */}
+
+                  {/* Crane */}
+                  <line
+                    x1={x}
+                    y1={section.cranePosition}
+                    x2={x + sectionWidth}
+                    y2={section.cranePosition}
+                    stroke="#fbbf24"
+                    strokeWidth={5}
+                  />
+
+                  {/* Section ID */}
+                  <text
+                    x={x + sectionWidth/2}
+                    y={600}
+                    textAnchor="middle"
+                    className="text-4xl font-bold fill-gray-100"
+                  >
+                    {section.id}
+                  </text>
+
+                  {/* RF/SD Plug status - 根據區域顯示不同文字 */}
+                  <rect
+                    x={x}
+                    y={440}
+                    width={sectionWidth}
+                    height={30}
+                    fill="black"
+                  />
+                  <text
+                    x={x + sectionWidth/2}
+                    y={550}
+                    textAnchor="middle"
+                    fill={getStatusColor(section.rfPlugStatus)}
+                    className="text-2xl font-bold"
+                  >
+                    {`${isRFSection ? 'RF' : 'SD'}: ${Math.round(section.rfPlugStatus)}%`}
+                  </text>
+
+                  {/* 修改點擊區域的處理 */}
+                  {/* Section 的點擊區域 - 不包括車道區域 */}
+                  <rect
+                    x={x + 10} // 向右偏移，避開車道區域
+                    y={-100}
+                    width={sectionWidth - 20} // 減少寬度，避開車道區域
+                    height={520}
+                    fill="transparent"
+                    className="cursor-pointer"
+                    onClick={() => handleSectionClick(section)}
+                  />
+
+                  {/* 車道點擊區域 - 獨立的點擊區域 */}
+                  {index < sections.length - 1 && (
+                    <g>
+                      {/* 車道背景 */}
+                      <rect
+                        x={x + sectionWidth - 10}
+                        y={-80}
+                        width={20}
+                        height={500}
+                        fill="#1a1a1a"
+                      />
+                      {/* 車道標記線 */}
+                      <line
+                        x1={x + sectionWidth}
+                        y1={0}
+                        x2={x + sectionWidth}
+                        y2={500}
+                        stroke="#fbbf24"
+                        strokeWidth="1"
+                        strokeDasharray="6 6"
+                      />
+                      {/* 車道標籤 */}
+                      <text
+                        x={x + sectionWidth}
+                        y={200}
+                        textAnchor="middle"
+                        className={`font-bold fill-gray-400 ${isFullscreen ? 'text-sm' : 'text-xs'}`}
+                      >
+                        {`L${index + 1}`}
+                      </text>
+                      
+                      {/* 添加攝像頭按鈕 */}
+                      <g 
+                        transform={`translate(${x + sectionWidth - 5}, 250)`}
+                        className="cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleLaneClick(`${section.id}-${sections[index + 1].id}`, 250)
+                        }}
+                      >
+                        {/* 攝像頭圖標背景 */}
+                        <circle
+                          r="12"
+                          fill="#1f2937"
+                          className="stroke-2 stroke-gray-700 hover:stroke-yellow-500 transition-colors"
+                        />
+                        {/* 攝像頭圖標 */}
+                        <path
+                          d="M -4.5,-3 L 0,-3 L 3,0 L 3,3 L -4.5,3 Z M 3,0 L 6,-1.5 L 6,4.5 L 3,3"
+                          fill="#fbbf24"
+                          className="hover:fill-yellow-400 transition-colors"
+                        />
+                        {/* 添加懸停效果提示 */}
+                        <circle
+                          r="14"
+                          fill="transparent"
+                          className="opacity-0 hover:opacity-20 transition-opacity"
+                          stroke="#fbbf24"
+                          strokeWidth="1"
+                        />
+                      </g>
+                    </g>
+                  )}
+                </g>
+              )
+            })}
+          </>
+        )}
 
         {/* 為整個圖表添加左右間距 */}
         <rect x="0" y="0" width="0" height="520" fill="black" />
         <rect x="2350" y="0" width="0" height="520" fill="black" />
       </svg>
 
-      {/* CCTV Dialog */}
+      {/* 修改 CCTV Dialog */}
       <Dialog open={selectedLane !== null} onOpenChange={() => setSelectedLane(null)}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[800px]">
           <DialogHeader>
-            <DialogTitle>
-              CCTV - {selectedLane?.laneId} (Position: {Math.round(selectedLane?.position || 0)}px)
-            </DialogTitle>
+            <div className="flex items-center justify-between">
+              <DialogTitle className="text-xl font-bold">
+                CCTV - Lane {selectedLane?.laneId}
+              </DialogTitle>
+              <div className={`px-2 py-1 rounded-full text-sm ${
+                cctvData.status === 'online' 
+                  ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
+                  : 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
+              }`}>
+                {cctvData.status.toUpperCase()}
+              </div>
+            </div>
           </DialogHeader>
-          <div className="aspect-video bg-gray-900 rounded-lg flex items-center justify-center">
-            <div className="text-gray-400">
-              CCTV Feed Placeholder for {selectedLane?.laneId}
+
+          <div className="grid gap-4">
+            {/* CCTV 畫面 */}
+            <div className="aspect-video bg-gray-900 rounded-lg overflow-hidden relative">
+              {cctvData.status === 'online' ? (
+                <>
+                  <VideoPlayer laneId={selectedLane?.laneId || 'default'} />
+                  {/* CCTV 資訊覆蓋層 */}
+                  <div className="absolute inset-0 bg-black/10">
+                    <div className="absolute bottom-4 left-4 text-sm text-white flex flex-col gap-1 shadow-sm">
+                      <div className="font-mono">Lane {selectedLane?.laneId}</div>
+                      <div className="font-mono">{new Date().toLocaleTimeString()}</div>
+                    </div>
+                    {/* 添加即時狀態指示器 */}
+                    <div className="absolute top-4 right-4 flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                      <span className="text-xs text-white font-mono">REC</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="text-center">
+                    <span className="text-red-500 block mb-2">Camera Offline</span>
+                    <span className="text-gray-400 text-sm">Connection lost</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 監控資訊 */}
+            <div className="grid grid-cols-3 gap-4">
+              <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg">
+                <div className="text-sm text-gray-500 dark:text-gray-400">Status</div>
+                <div className="text-lg font-bold">{cctvData.status.toUpperCase()}</div>
+              </div>
+              <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg">
+                <div className="text-sm text-gray-500 dark:text-gray-400">Last Update</div>
+                <div className="text-lg font-bold">{cctvData.lastUpdate}</div>
+              </div>
+              <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg">
+                <div className="text-sm text-gray-500 dark:text-gray-400">Vehicles in Lane</div>
+                <div className="text-lg font-bold">{cctvData.vehicleCount}</div>
+              </div>
             </div>
           </div>
         </DialogContent>
@@ -474,13 +660,13 @@ const ContainerMonitor = () => {
 
       {/* Section Details Dialog */}
       <Dialog open={selectedSection !== null} onOpenChange={() => setSelectedSection(null)}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[800px]">
           <DialogHeader>
             <DialogTitle>
               Section {selectedSection?.id} Details
             </DialogTitle>
           </DialogHeader>
-          <div className="grid gap-4">
+          <div className="grid gap-6">
             <div className="grid grid-cols-2 gap-4">
               {(() => {
                 const isRFSection = selectedSection?.id ? ['D', 'E', 'F', 'G', 'H'].includes(selectedSection.id) : false;
@@ -513,6 +699,55 @@ const ContainerMonitor = () => {
                   </>
                 );
               })()}
+            </div>
+
+            {/* 添加趨勢圖 */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">Historical Trends</h3>
+              <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4">
+                <div className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={selectedSection ? getHistoricalData(selectedSection.id) : []}
+                      margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <XAxis 
+                        dataKey="timestamp" 
+                        stroke="#6B7280"
+                        tick={{ fill: '#6B7280' }}
+                        tickFormatter={(value) => value.split(' ')[0]}
+                      />
+                      <YAxis 
+                        stroke="#6B7280"
+                        tick={{ fill: '#6B7280' }}
+                        domain={[0, 100]}
+                        tickFormatter={(value) => `${value}%`}
+                      />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: '#1F2937',
+                          border: 'none',
+                          borderRadius: '0.375rem',
+                          color: '#F3F4F6'
+                        }}
+                        labelStyle={{ color: '#9CA3AF' }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="value"
+                        stroke="#3B82F6"
+                        strokeWidth={2}
+                        dot={{ fill: '#3B82F6', r: 4 }}
+                        activeDot={{ r: 6, fill: '#60A5FA' }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                  Last 24 hours utilization trend
+                </div>
+              </div>
             </div>
           </div>
         </DialogContent>
@@ -806,7 +1041,7 @@ export function DashboardComponent() {
         {/* Main content */}
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 dark:bg-gray-950">
           <div className="container mx-auto px-6 py-8">
-            {/* Stats grid - 加回 KPI 統計卡片 */}
+            {/* Stats grid - 加回 KPI 統計卡 */}
             <div className="grid grid-cols-8 gap-4 mb-8">
               <Stat 
                 title="Total Containers" 
