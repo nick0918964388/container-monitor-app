@@ -706,43 +706,45 @@ const ContainerMonitor = () => {
               <h3 className="text-lg font-semibold">Historical Trends</h3>
               <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4">
                 <div className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart
-                      data={selectedSection ? getHistoricalData(selectedSection.id) : []}
-                      margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                      <XAxis 
-                        dataKey="timestamp" 
-                        stroke="#6B7280"
-                        tick={{ fill: '#6B7280' }}
-                        tickFormatter={(value) => value.split(' ')[0]}
-                      />
-                      <YAxis 
-                        stroke="#6B7280"
-                        tick={{ fill: '#6B7280' }}
-                        domain={[0, 100]}
-                        tickFormatter={(value) => `${value}%`}
-                      />
-                      <Tooltip 
-                        contentStyle={{ 
-                          backgroundColor: '#1F2937',
-                          border: 'none',
-                          borderRadius: '0.375rem',
-                          color: '#F3F4F6'
-                        }}
-                        labelStyle={{ color: '#9CA3AF' }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="value"
-                        stroke="#3B82F6"
-                        strokeWidth={2}
-                        dot={{ fill: '#3B82F6', r: 4 }}
-                        activeDot={{ r: 6, fill: '#60A5FA' }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  {mounted && ( // 添加 mounted 檢查
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={selectedSection ? getHistoricalData(selectedSection.id) : []}
+                        margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                        <XAxis 
+                          dataKey="timestamp" 
+                          stroke="#6B7280"
+                          tick={{ fill: '#6B7280' }}
+                          tickFormatter={(value) => value.split(' ')[0]}
+                        />
+                        <YAxis 
+                          stroke="#6B7280"
+                          tick={{ fill: '#6B7280' }}
+                          domain={[0, 100]}
+                          tickFormatter={(value) => `${value}%`}
+                        />
+                        <Tooltip 
+                          contentStyle={{ 
+                            backgroundColor: '#1F2937',
+                            border: 'none',
+                            borderRadius: '0.375rem',
+                            color: '#F3F4F6'
+                          }}
+                          labelStyle={{ color: '#9CA3AF' }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="value"
+                          stroke="#3B82F6"
+                          strokeWidth={2}
+                          dot={{ fill: '#3B82F6', r: 4 }}
+                          activeDot={{ r: 6, fill: '#60A5FA' }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
                 </div>
                 <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
                   Last 24 hours utilization trend
@@ -1098,7 +1100,7 @@ export function DashboardComponent() {
                     Container Monitor
                   </TabsTrigger>
                   <TabsTrigger value="empty" className="text-sm font-medium px-4 py-2">Empty Monitor</TabsTrigger>
-                  <TabsTrigger value="search" className="text-sm font-medium px-4 py-2">Container Search</TabsTrigger>
+                  
                 </TabsList>
 
                 <TabsContent value="monitor">
