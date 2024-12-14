@@ -18,6 +18,7 @@ import { useTheme } from "next-themes"
 import { Moon, Sun } from "lucide-react"
 import Hls from 'hls.js'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import ContainerTerminal from '@/components/container-terminal'
 
 // Reusable components
 const Stat = ({ title, value, change }: { title: string; value: string; change: string }) => (
@@ -81,7 +82,7 @@ interface HistoricalData {
   value: number;
 }
 
-// 在 ContainerMonitor 組件頂部添加視頻映射
+// 在 ContainerMonitor 組件頂部加視頻映射
 const LANE_VIDEOS: { [key: string]: string } = {
   'A-B': '/videos/lane.mp4',
   'B-C': '/videos/lane.mp4',
@@ -939,12 +940,14 @@ const EmptyMonitor = () => {
 }
 
 export function DashboardComponent() {
+  const [mounted, setMounted] = useState(false)
   const { theme, setTheme } = useTheme()
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [currentTime, setCurrentTime] = useState<string>('')
 
   useEffect(() => {
-    // 首次渲染時設置時間
+    setMounted(true)
+    // 首次渲染时设置时间
     setCurrentTime(new Date().toLocaleTimeString())
     
     const timer = setInterval(() => {
@@ -953,6 +956,11 @@ export function DashboardComponent() {
     
     return () => clearInterval(timer)
   }, [])
+
+  // 在完成客户端挂载前不渲染依赖于主题的内容
+  if (!mounted) {
+    return null // 或者返回一个加载占位符
+  }
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-950">
@@ -1100,7 +1108,7 @@ export function DashboardComponent() {
                     Container Monitor
                   </TabsTrigger>
                   <TabsTrigger value="empty" className="text-sm font-medium px-4 py-2">Empty Monitor</TabsTrigger>
-                  
+                  <TabsTrigger value="terminal" className="text-sm font-medium px-4 py-2">Container 3D View</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="monitor">
@@ -1125,6 +1133,18 @@ export function DashboardComponent() {
                     <CardContent className="p-0">
                       <div className="scale-100 transform-origin-top-left p-4">
                         <EmptyMonitor />
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                <TabsContent value="terminal">
+                  <Card className="border-0 shadow-none">
+                    <CardHeader>
+                      <CardTitle className="text-xl">Container 3D view</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <div className="h-[600px] relative">
+                        <ContainerTerminal />
                       </div>
                     </CardContent>
                   </Card>
